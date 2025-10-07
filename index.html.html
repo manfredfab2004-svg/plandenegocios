@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pizarra Profesional de Negocios</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: none;
+        }
+        .tool-btn {
+            transition: all 0.2s ease-in-out;
+        }
+        .tool-btn.active {
+            background-color: #2563eb; /* blue-600 */
+            color: white;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+            transform: scale(1.05);
+        }
+        #whiteboard {
+            cursor: crosshair;
+        }
+        #whiteboard.move-cursor { cursor: move; }
+        #whiteboard.pan-cursor { cursor: grab; }
+        #whiteboard.panning-cursor { cursor: grabbing; }
+        #whiteboard.delete-cursor { cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 6h18'/><path d='M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2'/><line x1='10' y1='11' x2='10' y2='17'/><line x1='14' y1='11' x2='14' y2='17'/></svg>") 12 12, auto; }
+        
+        #confirmationModal.hidden, #textProperties.hidden, #presentation-exit.hidden { display: none; }
+
+        /* Scrollbar styling for a dark theme */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        @keyframes shimmer {
+            0% { background-position: -500% 0; }
+            100% { background-position: 500% 0; }
+        }
+
+        .title-gold-shimmer {
+            font-weight: 600;
+            background: linear-gradient(to right, #bf953f, #fcf6ba, #b38728, #fbf5b7, #aa771c);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-size: 250% auto;
+            animation: shimmer 8s linear infinite;
+        }
+        
+        .permanent-footer {
+            position: fixed;
+            bottom: 10px;
+            right: 15px;
+            font-size: 12px;
+            color: rgba(203, 213, 225, 0.4); /* slate-400 with 40% opacity */
+            pointer-events: none; /* So it doesn't interfere with canvas events */
+            z-index: 100;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+        
+        body.presentation-mode #toolbar, body.presentation-mode header {
+            display: none;
+        }
+        body.presentation-mode .permanent-footer {
+            color: rgba(203, 213, 225, 0.2);
+        }
+        body.presentation-mode #canvas-container {
+             margin: 0 !important;
+             border-radius: 0 !important;
+        }
+        
+        @keyframes toast-in {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes toast-out {
+            from { transform: translateY(0); opacity: 1; }
+            to { transform: translateY(100%); opacity: 0; }
+        }
+        .toast {
+            animation: toast-in 0.3s ease-out forwards, toast-out 0.3s ease-in 3s forwards;
+        }
+
+    </style>
+</head>
+<body class="bg-slate-900 text-gray-200 flex flex-col h-screen overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-slate-800 shadow-lg p-4 z-20 border-b border-slate-700">
+        <div class="flex items-center justify-center">
+            <h1 class="text-xl md:text-2xl font-bold text-center tracking-wider title-gold-shimmer">Plan de Negocios Amway</h1>
+        </div>
+     </header>
+
+    <!-- Main Content -->
+    <div class="flex flex-grow w-full relative">
+        <!-- Toolbar -->
+        <div id="toolbar" class="bg-slate-800 shadow-2xl p-4 flex flex-col items-center space-y-4 z-10 overflow-y-auto">
+            
+            <div class="w-full">
+                <h3 class="text-sm font-semibold text-blue-400 mb-3 text-center uppercase tracking-widest">Herramientas</h3>
+                <div class="grid grid-cols-3 gap-3">
+                    <button id="pen" class="tool-btn active flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600" title="Lápiz"><i data-lucide="pencil"></i></button>
+                    <button id="eraser" class="tool-btn flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600" title="Borrador"><i data-lucide="eraser"></i></button>
+                    <button id="line" class="tool-btn flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600" title="Línea"><i data-lucide="minus"></i></button>
+                    <button id="rectangle" class="tool-btn flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600" title="Rectángulo"><i data-lucide="square"></i></button>
+                    <button id="text" class="tool-btn flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600" title="Texto"><i data-lucide="type"></i></button>
+                    <button id="move" class="tool-btn flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600" title="Mover / Seleccionar"><i data-lucide="move"></i></button>
+                    <button id="pan" class="tool-btn flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600" title="Mover Vista"><i data-lucide="hand"></i></button>
+                    <button id="delete" class="tool-btn flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600" title="Eliminar"><i data-lucide="trash-2"></i></button>
+                    <button id="duplicate" class="tool-btn flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" title="Duplicar" disabled><i data-lucide="copy"></i></button>
+                </div>
+            </div>
+
+            <div id="textProperties" class="w-full p-3 bg-slate-700 rounded-lg hidden">
+                <h3 class="text-sm font-semibold text-blue-400 mb-3 text-center uppercase tracking-widest">Texto</h3>
+                <div class="flex items-center justify-center space-x-3">
+                    <button id="decreaseFontSize" class="px-3 py-1 rounded bg-slate-600 hover:bg-slate-500">-</button>
+                    <span id="fontSizeDisplay" class="text-sm">20</span>
+                    <button id="increaseFontSize" class="px-3 py-1 rounded bg-slate-600 hover:bg-slate-500">+</button>
+                </div>
+            </div>
+
+            <div class="w-full">
+                <h3 class="text-sm font-semibold text-blue-400 mb-3 text-center uppercase tracking-widest">Plantillas Amway</h3>
+                <div class="flex flex-col space-y-2">
+                    <button id="add3Frontales" class="bg-blue-700 text-white font-bold py-2 px-2 rounded-lg hover:bg-blue-600 transition-all text-xs">3 Frontales</button>
+                    <button id="addBronceConstructor" class="bg-amber-600 text-white font-bold py-2 px-2 rounded-lg hover:bg-amber-500 transition-all text-xs">Bronce Constructor</button>
+                    <button id="addLiderPlata" class="bg-stone-500 text-white font-bold py-2 px-2 rounded-lg hover:bg-stone-600 transition-all text-xs">Líder Plata (21%)</button>
+                    <button id="addPlatino" class="bg-teal-500 text-white font-bold py-2 px-2 rounded-lg hover:bg-teal-600 transition-all text-xs">Platino</button>
+                    <button id="addEsmeralda" class="bg-emerald-500 text-white font-bold py-2 px-2 rounded-lg hover:bg-emerald-600 transition-all text-xs">Esmeralda</button>
+                    <button id="addDiamante" class="bg-sky-400 text-white font-bold py-2 px-2 rounded-lg hover:bg-sky-500 transition-all text-xs">Diamante</button>
+                </div>
+            </div>
+            
+            <div class="w-full space-y-4">
+                 <h3 class="text-sm font-semibold text-blue-400 mb-2 text-center uppercase tracking-widest">Propiedades</h3>
+                <div class="flex justify-around">
+                    <div class="color-option active ring-2 ring-blue-500" data-color="#FFFFFF" style="background-color: #FFFFFF;"></div>
+                    <div class="color-option" data-color="#DC2626" style="background-color: #DC2626;"></div>
+                    <div class="color-option" data-color="#1D4ED8" style="background-color: #1D4ED8;"></div>
+                    <div class="color-option" data-color="#10B981" style="background-color: #10B981;"></div>
+                    <div class="color-option" data-color="#D97706" style="background-color: #D97706;"></div>
+                </div>
+                <style>.color-option { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; transition: transform 0.2s; border: 1px solid rgba(0,0,0,0.2); } .color-option:hover { transform: scale(1.1); }</style>
+                <div>
+                    <label for="brushSize" class="text-xs font-medium text-gray-400">Grosor: <span id="brushSizeValue">5</span></label>
+                    <input type="range" id="brushSize" min="1" max="50" value="5" class="w-full mt-1">
+                </div>
+                <div>
+                     <label for="background-selector" class="text-xs font-medium text-gray-400">Fondo</label>
+                     <div class="grid grid-cols-3 gap-2 mt-1">
+                        <button class="bg-slate-700 text-xs py-1 rounded-md hover:bg-slate-600" data-bg="dark">Oscuro</button>
+                        <button class="bg-slate-700 text-xs py-1 rounded-md hover:bg-slate-600" data-bg="light">Claro</button>
+                        <button class="bg-slate-700 text-xs py-1 rounded-md hover:bg-slate-600" data-bg="dots">Puntos</button>
+                     </div>
+                </div>
+            </div>
+
+            <div class="w-full !mt-auto pt-4 border-t border-slate-700">
+                <h3 class="text-sm font-semibold text-blue-400 mb-3 text-center uppercase tracking-widest">Acciones</h3>
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="undo" class="flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" title="Deshacer"><i data-lucide="undo-2"></i></button>
+                    <button id="redo" class="flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed" title="Rehacer"><i data-lucide="redo-2"></i></button>
+                    <button id="saveSession" class="flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600" title="Guardar Sesión"><i data-lucide="save"></i></button>
+                    <button id="loadSession" class="flex justify-center p-3 rounded-lg bg-slate-700 hover:bg-slate-600" title="Cargar Sesión"><i data-lucide="folder-open"></i></button>
+                </div>
+                 <div class="flex flex-col space-y-2 mt-3">
+                    <button id="present" class="bg-indigo-600 text-white w-full font-bold py-2 px-2 rounded-lg hover:bg-indigo-700 transition-all text-xs flex items-center justify-center gap-2">Presentar <i data-lucide="presentation" class="w-4 h-4"></i></button>
+                    <button id="savePNG" class="bg-green-600 text-white w-full font-bold py-2 px-2 rounded-lg hover:bg-green-700 transition-all text-xs">Guardar PNG</button>
+                    <button id="clearCanvas" class="bg-red-600 text-white w-full font-bold py-2 px-2 rounded-lg hover:bg-red-700 transition-all text-xs">Limpiar Todo</button>
+                 </div>
+            </div>
+        </div>
+
+        <div id="canvas-container" class="flex-grow bg-slate-900 m-4 rounded-lg shadow-inner overflow-hidden">
+            <canvas id="whiteboard" class="rounded-lg"></canvas>
+        </div>
+    </div>
+    
+    <div id="confirmationModal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+        <div class="bg-slate-800 p-6 rounded-lg shadow-xl text-center border border-slate-700">
+            <p id="modalMessage" class="mb-4 text-lg text-white">¿Estás seguro?</p>
+            <div class="flex justify-center space-x-4">
+                <button id="modalCancelBtn" class="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700">Cancelar</button>
+                <button id="modalConfirmBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="permanent-footer">
+        Creado por Fabián Carvajal, empresario de Amway
+    </div>
+    
+    <button id="presentation-exit" class="hidden fixed top-4 right-4 bg-slate-800/50 hover:bg-slate-700/70 p-3 rounded-full text-white z-50" title="Salir de Presentación (Esc)">
+        <i data-lucide="x"></i>
+    </button>
+    <input type="file" id="fileLoader" class="hidden" accept=".json">
+    <div id="toast-container" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2"></div>
+
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const canvas = document.getElementById('whiteboard');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const undoBtn = document.getElementById('undo'), redoBtn = document.getElementById('redo');
+        const textPropertiesPanel = document.getElementById('textProperties');
+        const fontSizeDisplay = document.getElementById('fontSizeDisplay');
+        const duplicateBtn = document.getElementById('duplicate');
+        const fileLoader = document.getElementById('fileLoader');
+        const toastContainer = document.getElementById('toast-container');
+        
+        let currentTool = 'pen', isDrawing = false, isDragging = false;
+        let color = '#FFFFFF', lineWidth = 5;
+        let history = [], historyStep = -1;
+        let objects = [];
+        let currentPath = null;
+        let selectedObject = null;
+        let startX, startY;
+        let zoom = 1, offsetX = 0, offsetY = 0;
+        let isPanning = false, lastPanPos = { x: 0, y: 0 };
+        let erasedDuringAction = false;
+        let currentBackground = 'dark';
+        const backgroundColors = { dark: '#1e293b', light: '#ffffff' };
+        const darkColorForLightBg = '#334155';
+        
+        function initializeCanvas() {
+            setCanvasSize();
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            saveState();
+        }
+
+        function setCanvasSize() {
+            const parent = canvas.parentElement;
+            canvas.width = parent.clientWidth;
+            canvas.height = parent.clientHeight;
+            render();
+        }
+
+        function drawBackground() {
+            if (currentBackground === 'dots') {
+                ctx.fillStyle = backgroundColors.dark;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                const gridSize = 20 * zoom;
+                const dotRadius = 1 * zoom;
+                const patternOffsetX = offsetX % gridSize;
+                const patternOffsetY = offsetY % gridSize;
+
+                ctx.fillStyle = 'rgba(100, 116, 139, 0.5)';
+                for (let x = patternOffsetX; x < canvas.width; x += gridSize) {
+                    for (let y = patternOffsetY; y < canvas.height; y += gridSize) {
+                        ctx.beginPath();
+                        ctx.arc(x, y, dotRadius, 0, 2 * Math.PI);
+                        ctx.fill();
+                    }
+                }
+            } else {
+                 ctx.fillStyle = backgroundColors[currentBackground];
+                 ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+
+        function render() {
+            ctx.save();
+            drawBackground();
+            ctx.translate(offsetX, offsetY);
+            ctx.scale(zoom, zoom);
+            
+            objects.forEach(drawObject);
+            if (selectedObject) drawSelectionBox(selectedObject);
+            
+            ctx.restore();
+        }
+
+        function getVisibleColor(objColor) {
+            return currentBackground === 'light' && objColor === '#FFFFFF' ? darkColorForLightBg : objColor;
+        }
+
+        function drawObject(obj) {
+            const visibleColor = getVisibleColor(obj.color);
+            ctx.strokeStyle = visibleColor;
+            ctx.lineWidth = obj.lineWidth / zoom;
+            ctx.fillStyle = visibleColor;
+
+            switch (obj.type) {
+                case 'path':
+                    ctx.beginPath();
+                    obj.points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+                    ctx.stroke();
+                    break;
+                case 'line':
+                    ctx.beginPath();
+                    ctx.moveTo(obj.x1, obj.y1);
+                    ctx.lineTo(obj.x2, obj.y2);
+                    ctx.stroke();
+                    break;
+                case 'rectangle':
+                    ctx.strokeRect(obj.x, obj.y, obj.width, obj.height);
+                    break;
+                case 'text':
+                    ctx.font = `${obj.fontSize}px Inter`;
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(obj.text, obj.x, obj.y);
+                    break;
+                case 'structure':
+                    drawStructure(obj);
+                    break;
+            }
+        }
+
+        function drawStructure(s) {
+            const originalStrokeStyle = ctx.strokeStyle;
+            const structureColor = getVisibleColor(s.color);
+            ctx.strokeStyle = structureColor;
+            s.circles.forEach(circle => {
+                const textColor = getVisibleColor(s.textColor);
+                drawCircleWithText(s.x + circle.relX, s.y + circle.relY, circle.text, circle.radius, textColor);
+            });
+            s.lines.forEach(line => {
+                const c1 = s.circles.find(c => c.id === line.from);
+                const c2 = s.circles.find(c => c.id === line.to);
+                if (c1 && c2) drawConnectingLine(s.x + c1.relX, s.y + c1.relY, s.x + c2.relX, s.y + c2.relY, c1.radius, c2.radius);
+            });
+            ctx.strokeStyle = originalStrokeStyle;
+        }
+
+        function drawCircleWithText(x, y, text, radius, textColor) {
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.lineWidth = 2.5 / zoom;
+            ctx.strokeStyle = getVisibleColor(ctx.strokeStyle);
+            ctx.stroke();
+            ctx.fillStyle = textColor;
+            ctx.font = `${16 / zoom}px Inter`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x, y);
+        }
+
+        function drawConnectingLine(fromX, fromY, toX, toY, r1, r2) {
+            ctx.beginPath();
+            const angle = Math.atan2(toY - fromY, toX - fromX);
+            ctx.moveTo(fromX + r1 * Math.cos(angle), fromY + r1 * Math.sin(angle));
+            ctx.lineTo(toX - r2 * Math.cos(angle), toY - r2 * Math.sin(angle));
+            ctx.lineWidth = 2.5 / zoom;
+            ctx.strokeStyle = getVisibleColor(ctx.strokeStyle);
+            ctx.stroke();
+        }
+        
+        function drawSelectionBox(obj) {
+            const bounds = getObjectBounds(obj);
+            if (!bounds) return;
+            ctx.strokeStyle = '#2563eb';
+            ctx.lineWidth = 2 / zoom;
+            ctx.setLineDash([5 / zoom, 5 / zoom]);
+            ctx.strokeRect(bounds.x - 5 / zoom, bounds.y - 5 / zoom, bounds.width + 10 / zoom, bounds.height + 10 / zoom);
+            ctx.setLineDash([]);
+        }
+
+        const getScreenPos = (e) => { const rect = canvas.getBoundingClientRect(); const touch = e.touches ? e.touches[0] : null; return { x: (touch || e).clientX - rect.left, y: (touch || e).clientY - rect.top }; };
+        const getPos = (e) => { const screenPos = getScreenPos(e); return { x: (screenPos.x - offsetX) / zoom, y: (screenPos.y - offsetY) / zoom }; };
+        
+        function updateUndoRedoButtons(){ undoBtn.disabled = historyStep <= 0; redoBtn.disabled = historyStep >= history.length - 1; }
+        function saveState() { if (historyStep < history.length - 1) history.splice(historyStep + 1); history.push(JSON.stringify(objects)); historyStep++; updateUndoRedoButtons(); }
+        function restoreState() { objects = history[historyStep] ? JSON.parse(history[historyStep]) : []; render(); updateUndoRedoButtons(); }
+        function undo() { if (historyStep > 0) { historyStep--; restoreState(); } }
+        function redo() { if (historyStep < history.length - 1) { historyStep++; restoreState(); } }
+
+        function updateSelectionUI() {
+            const hasSelection = selectedObject && ['structure', 'text', 'rectangle', 'line', 'path'].includes(selectedObject.type);
+            duplicateBtn.disabled = !hasSelection;
+            
+            if (selectedObject && selectedObject.type === 'text') {
+                textPropertiesPanel.classList.remove('hidden');
+                fontSizeDisplay.textContent = Math.round(selectedObject.fontSize * zoom);
+            } else {
+                textPropertiesPanel.classList.add('hidden');
+            }
+        }
+
+        function startAction(e) {
+            const pos = getPos(e);
+            startX = pos.x;
+            startY = pos.y;
+            isDrawing = true;
+            
+            if (currentTool === 'pan') {
+                isPanning = true;
+                lastPanPos = getScreenPos(e);
+                canvas.classList.add('panning-cursor');
+            } else if (currentTool === 'move') {
+                const objectAtPos = getObjectAtPos(pos.x, pos.y);
+                selectedObject = objectAtPos;
+                if (selectedObject) {
+                    isDragging = true;
+                    selectedObject.offsetX = pos.x - selectedObject.x;
+                    selectedObject.offsetY = pos.y - selectedObject.y;
+                }
+                updateSelectionUI();
+            } else if (currentTool === 'delete') {
+                const objectToDelete = getObjectAtPos(pos.x, pos.y);
+                if (objectToDelete) {
+                    objects = objects.filter(obj => obj.id !== objectToDelete.id);
+                    saveState();
+                    isDrawing = false;
+                } else {
+                    isDrawing = false;
+                }
+            } else {
+                selectedObject = null;
+                updateSelectionUI();
+                if (currentTool === 'pen') {
+                    currentPath = { type: 'path', id: Date.now(), points: [pos], color: color, lineWidth: lineWidth };
+                    objects.push(currentPath);
+                } else if (currentTool === 'eraser') {
+                    if (eraseAt(pos.x, pos.y)) {
+                        erasedDuringAction = true;
+                    }
+                }
+            }
+            render();
+        }
+
+        function moveAction(e) {
+            if (!isDrawing) return;
+            e.preventDefault();
+            const pos = getPos(e);
+
+            if (isPanning) {
+                const screenPos = getScreenPos(e);
+                offsetX += screenPos.x - lastPanPos.x;
+                offsetY += screenPos.y - lastPanPos.y;
+                lastPanPos = screenPos;
+            } else if (isDragging && selectedObject) {
+                selectedObject.x = pos.x - selectedObject.offsetX;
+                selectedObject.y = pos.y - selectedObject.offsetY;
+            } else if (currentTool === 'pen' && currentPath) {
+                currentPath.points.push(pos);
+            } else if (currentTool === 'eraser') {
+                if(eraseAt(pos.x, pos.y)){
+                    erasedDuringAction = true;
+                }
+            }
+            render();
+        }
+
+        function endAction(e) {
+            if (!isDrawing) return;
+            const pos = getPos(e);
+            
+            if (['line', 'rectangle'].includes(currentTool) && Math.abs(startX - pos.x) > 1 && Math.abs(startY - pos.y) > 1) {
+                const newShape = { type: 'shape', object: currentTool, id: Date.now(), color: color, lineWidth: lineWidth, x: Math.min(startX, pos.x), y: Math.min(startY, pos.y), x1: startX, y1: startY, x2: pos.x, y2: pos.y, width: Math.abs(startX - pos.x), height: Math.abs(startY - pos.y) };
+                objects.push(newShape);
+                saveState();
+            } else if (currentTool === 'text' && Math.abs(startX - pos.x) < 2 && Math.abs(startY - pos.y) < 2) {
+                handleTextTool(pos);
+            } else if (currentTool === 'pen' || (isDragging && selectedObject) || erasedDuringAction) {
+                saveState();
+            }
+
+            isDrawing = isPanning = isDragging = false;
+            erasedDuringAction = false;
+            canvas.classList.remove('panning-cursor');
+            currentPath = null;
+            render();
+        }
+        
+        function handleZoom(e) { if (!e.ctrlKey) return; e.preventDefault(); const screenPos = getScreenPos(e); const worldPos = { x: (screenPos.x - offsetX) / zoom, y: (screenPos.y - offsetY) / zoom }; const zoomFactor = 1.1; const newZoom = e.deltaY < 0 ? zoom * zoomFactor : zoom / zoomFactor; zoom = Math.max(0.2, Math.min(newZoom, 5)); offsetX = screenPos.x - worldPos.x * zoom; offsetY = screenPos.y - worldPos.y * zoom; updateSelectionUI(); render(); }
+        function handleTextTool(pos) { const initialFontSize = 20; const input = document.createElement('input'); const rect = canvas.getBoundingClientRect(); input.type = 'text'; Object.assign(input.style, { position: 'absolute', left: `${rect.left + pos.x * zoom + offsetX}px`, top: `${rect.top + pos.y * zoom + offsetY}px`, transform: `scale(${zoom}) translateY(-100%)`, transformOrigin: 'top left', border: `1px solid ${color}`, background: '#1e293b', color: color, font: `${initialFontSize}px Inter`, zIndex: '100' }); document.body.appendChild(input); input.focus(); const finish = () => { if (input.value) { objects.push({ type: 'text', id: Date.now(), text: input.value, x: pos.x, y: pos.y, color: color, fontSize: initialFontSize / zoom }); saveState(); render(); } document.body.removeChild(input); }; input.addEventListener('blur', finish, { once: true }); input.addEventListener('keydown', e => e.key === 'Enter' && input.blur()); }
+        
+        function eraseAt(x, y) {
+            let somethingErased = false;
+            for (let i = objects.length - 1; i >= 0; i--) {
+                const obj = objects[i];
+                if (getObjectAtPos(x, y) === obj) {
+                    objects.splice(i, 1);
+                    somethingErased = true;
+                }
+            }
+            return somethingErased;
+        }
+
+        function handleDoubleClick(e) { const pos = getPos(e); const target = getCircleAtPos(pos.x, pos.y); if (target) createTextInputForCircle(target.structure, target.circle); }
+        function createTextInputForCircle(structure, circle) { const input = document.createElement('input'); const rect = canvas.getBoundingClientRect(); const circleScreenX = rect.left + (structure.x + circle.relX) * zoom + offsetX; const circleScreenY = rect.top + (structure.y + circle.relY) * zoom + offsetY; input.type = 'text'; input.value = circle.text; Object.assign(input.style, { position: 'absolute', left: `${circleScreenX}px`, top: `${circleScreenY}px`, width: `${circle.radius * 1.8 * zoom}px`, transform: 'translate(-50%, -50%)', border: '1px solid #3b82f6', background: '#1e293b', color: '#FFFFFF', font: `${16 * zoom}px Inter`, zIndex: '100', textAlign: 'center' }); document.body.appendChild(input); input.focus(); input.select(); const finish = () => { circle.text = input.value; document.body.contains(input) && document.body.removeChild(input); saveState(); render(); }; input.addEventListener('blur', finish, { once: true }); input.addEventListener('keydown', e => e.key === 'Enter' && input.blur()); }
+        
+        // --- Object Selection Logic ---
+        function getObjectBounds(obj) { if (!obj || !obj.type) return null; switch (obj.type) { case 'structure': { const xCoords = obj.circles.map(c => obj.x + c.relX); const yCoords = obj.circles.map(c => obj.y + c.relY); const radii = obj.circles.map(c => c.radius); const minX = Math.min(...xCoords) - Math.max(...radii); const maxX = Math.max(...xCoords) + Math.max(...radii); const minY = Math.min(...yCoords) - Math.max(...radii); const maxY = Math.max(...yCoords) + Math.max(...radii); return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }; } case 'text': { ctx.font = `${obj.fontSize}px Inter`; const metrics = ctx.measureText(obj.text); return { x: obj.x, y: obj.y, width: metrics.width, height: obj.fontSize }; } case 'line': { const p = 5 / zoom; return { x: Math.min(obj.x1, obj.x2) - p, y: Math.min(obj.y1, obj.y2) - p, width: Math.abs(obj.x1 - obj.x2) + 2 * p, height: Math.abs(obj.y1 - obj.y2) + 2 * p }; } case 'rectangle': { return { x: obj.x, y: obj.y, width: obj.width, height: obj.height }; } case 'path': { if (!obj.points || obj.points.length === 0) return null; let minX = obj.points[0].x, maxX = obj.points[0].x, minY = obj.points[0].y, maxY = obj.points[0].y; obj.points.forEach(p => { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }); const p = obj.lineWidth / 2 / zoom; return { x: minX - p, y: minY - p, width: maxX - minX + 2*p, height: maxY - minY + 2*p }; } default: return null; } }
+        function isPointOnLine(p, a, b, threshold) { const dx = b.x - a.x; const dy = b.y - a.y; if (dx === 0 && dy === 0) return false; const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy); if (t < 0 || t > 1) return false; const closestX = a.x + t * dx; const closestY = a.y + t * dy; const dist = Math.sqrt((p.x - closestX) ** 2 + (p.y - closestY) ** 2); return dist < threshold; }
+        function getObjectAtPos(x, y) { for (let i = objects.length - 1; i >= 0; i--) { const obj = objects[i]; const bounds = getObjectBounds(obj); if (!bounds) continue; if (obj.type === 'line') { if (isPointOnLine({x,y}, {x:obj.x1,y:obj.y1}, {x:obj.x2,y:obj.y2}, 5/zoom)) return obj; } else if (x >= bounds.x && x <= bounds.x + bounds.width && y >= bounds.y && y <= bounds.y + bounds.height) { return obj; } } return null; }
+        function getCircleAtPos(x, y) { for (let i = objects.length - 1; i >= 0; i--) { const obj = objects[i]; if (obj.type === 'structure') { for (const circle of obj.circles) { if (Math.sqrt((x - (obj.x + circle.relX))**2 + (y - (obj.y + circle.relY))**2) <= circle.radius) { return { structure: obj, circle: circle }; } } } } return null; }
+
+        const templates = {
+            '3Frontales': (x, y) => ({ type: 'structure', id: Date.now(), x, y, color: '#1D4ED8', textColor: '#FFFFFF', circles: [{ id: 'm', relX: 0, relY: 0, text: 'TÚ', radius: 40 }, { id: 'l1', relX: -120, relY: 120, text: 'Frontal', radius: 40 }, { id: 'l2', relX: 0, relY: 120, text: 'Frontal', radius: 40 }, { id: 'l3', relX: 120, relY: 120, text: 'Frontal', radius: 40 }], lines: [{ from: 'm', to: 'l1' }, { from: 'm', to: 'l2' }, { from: 'm', to: 'l3' }] }),
+            'bronceConstructor': (x, y) => ({ type: 'structure', id: Date.now(), x, y, color: '#D97706', textColor: '#FFFFFF', circles: [{ id: 'm', relX: 0, relY: 0, text: 'BRONCE', radius: 40 }, { id: 'l1', relX: -120, relY: 120, text: '3%+', radius: 35 }, { id: 'l2', relX: 0, relY: 120, text: '3%+', radius: 35 }, { id: 'l3', relX: 120, relY: 120, text: '3%+', radius: 35 }], lines: [{ from: 'm', to: 'l1' }, { from: 'm', to: 'l2' }, { from: 'm', to: 'l3' }] }),
+            'liderPlata': (x, y) => ({ type: 'structure', id: Date.now(), x, y, color: '#78716C', textColor: '#FFFFFF', circles: [{ id: 'm', relX: 0, relY: 0, text: 'PLATA 21%', radius: 50 }], lines: [] }),
+            'platino': (x, y) => ({ type: 'structure', id: Date.now(), x, y, color: '#14B8A6', textColor: '#FFFFFF', circles: [{ id: 'm', relX: 0, relY: 0, text: 'PLATINO', radius: 55 }], lines: [] }),
+            'esmeralda': (x, y) => ({ type: 'structure', id: Date.now(), x, y, color: '#10B981', textColor: '#FFFFFF', circles: [{ id: 'm', relX: 0, relY: 0, text: 'ESMERALDA', radius: 50 }, { id: 'l1', relX: -150, relY: 150, text: '21%', radius: 45 }, { id: 'l2', relX: 0, relY: 150, text: '21%', radius: 45 }, { id: 'l3', relX: 150, relY: 150, text: '21%', radius: 45 }], lines: [{ from: 'm', to: 'l1' }, { from: 'm', to: 'l2' }, { from: 'm', to: 'l3' }] }),
+            'diamante': (x, y) => { const mainRadius = 55, frontRadius = 45, dist = 160; let circles = [{ id: 'main', relX: 0, relY: 0, text: 'DIAMANTE', radius: mainRadius }]; let lines = []; for (let i = 0; i < 6; i++) { const angle = (i / 6) * 2 * Math.PI, id = `f${i+1}`; circles.push({ id: id, relX: dist * Math.cos(angle), relY: dist * Math.sin(angle), text: `21%`, radius: frontRadius }); lines.push({ from: 'main', to: id }); } return { type: 'structure', id: Date.now(), x, y, color: '#38BDF8', textColor: '#FFFFFF', circles, lines }; }
+        };
+        function addStructure(templateFn) { const centerX = (canvas.width / 2 - offsetX) / zoom; const centerY = (canvas.height / 2 - offsetY) / zoom; objects.push(templateFn(centerX, centerY)); saveState(); render(); }
+        
+        function duplicateSelectedObject() { if (!selectedObject) return; const clone = JSON.parse(JSON.stringify(selectedObject)); clone.id = Date.now(); const offset = 20 / zoom; if (clone.type === 'path') { clone.points.forEach(p => { p.x += offset; p.y += offset; }); } else if (clone.type === 'line') { clone.x1 += offset; clone.y1 += offset; clone.x2 += offset; clone.y2 += offset; } clone.x += offset; clone.y += offset; objects.push(clone); selectedObject = clone; saveState(); render(); updateSelectionUI(); }
+
+        // --- Event Listeners ---
+        document.querySelectorAll('.tool-btn').forEach(btn => btn.addEventListener('click', () => {  document.querySelector('.tool-btn.active')?.classList.remove('active');  btn.classList.add('active');  currentTool = btn.id;  if (currentTool !== 'move') { selectedObject = null; updateSelectionUI(); } canvas.className = '';  if (currentTool === 'move') canvas.classList.add('move-cursor');  else if (currentTool === 'pan') canvas.classList.add('pan-cursor');  else if (currentTool === 'delete') canvas.classList.add('delete-cursor');  }));
+        document.querySelectorAll('.color-option').forEach(opt => opt.addEventListener('click', e => { document.querySelector('.color-option.active')?.classList.remove('active', 'ring-2', 'ring-blue-500'); e.currentTarget.classList.add('active', 'ring-2', 'ring-blue-500'); color = e.currentTarget.dataset.color; }));
+        const brushSizeInput = document.getElementById('brushSize'); const brushSizeValue = document.getElementById('brushSizeValue'); brushSizeInput.addEventListener('input', e => { lineWidth = e.target.value; brushSizeValue.textContent = lineWidth; });
+        undoBtn.addEventListener('click', undo); redoBtn.addEventListener('click', redo);
+        duplicateBtn.addEventListener('click', duplicateSelectedObject);
+        document.getElementById('clearCanvas').addEventListener('click', () => { showConfirmationModal('¿Estás seguro de que quieres limpiar toda la pizarra?', () => { objects = []; history = []; historyStep = -1; selectedObject = null; updateSelectionUI(); saveState(); render(); }); });
+        document.querySelectorAll('[data-bg]').forEach(button => button.addEventListener('click', (e) => { currentBackground = e.target.dataset.bg; render(); }));
+        const presentBtn = document.getElementById('present'), exitPresentBtn = document.getElementById('presentation-exit'); presentBtn.addEventListener('click', () => { document.body.classList.add('presentation-mode'); exitPresentBtn.classList.remove('hidden'); setTimeout(setCanvasSize, 50); }); const exitPresentation = () => { document.body.classList.remove('presentation-mode'); exitPresentBtn.classList.add('hidden'); setTimeout(setCanvasSize, 50); }; exitPresentBtn.addEventListener('click', exitPresentation); document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.body.classList.contains('presentation-mode')) exitPresentation(); });
+
+        // --- File & Notification Logic ---
+        function showToast(message, isError = false) { const toast = document.createElement('div'); toast.textContent = message; toast.className = `toast text-white px-4 py-2 rounded-md shadow-lg ${isError ? 'bg-red-500' : 'bg-emerald-500'}`; toastContainer.appendChild(toast); setTimeout(() => toast.remove(), 3300); }
+        document.getElementById('saveSession').addEventListener('click', () => { const sessionData = { objects, zoom, offsetX, offsetY, background: currentBackground }; const dataStr = JSON.stringify(sessionData); const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr); const linkElement = document.createElement('a'); linkElement.setAttribute('href', dataUri); linkElement.setAttribute('download', 'pizarra-amway.json'); linkElement.click(); showToast('Sesión guardada correctamente.'); });
+        document.getElementById('loadSession').addEventListener('click', () => fileLoader.click());
+        fileLoader.addEventListener('change', (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { const sessionData = JSON.parse(e.target.result); objects = sessionData.objects || []; zoom = sessionData.zoom || 1; offsetX = sessionData.offsetX || 0; offsetY = sessionData.offsetY || 0; currentBackground = sessionData.background || 'dark'; history = [JSON.stringify(objects)]; historyStep = 0; updateUndoRedoButtons(); render(); showToast('Sesión cargada correctamente.'); } catch (err) { showConfirmationModal('Error al cargar el archivo. Asegúrate de que es un archivo de sesión válido.', () => {}, true); } }; reader.readAsText(file); fileLoader.value = ''; });
+        document.getElementById('savePNG').addEventListener('click', () => { const link = document.createElement('a'); link.download = 'pizarra-de-negocios.png'; const tempCanvas = document.createElement('canvas'); tempCanvas.width = canvas.width; tempCanvas.height = canvas.height; const tempCtx = tempCanvas.getContext('2d'); const oldCtx = ctx; window.ctx = tempCtx; drawBackground(); window.ctx = oldCtx; tempCtx.drawImage(canvas, 0, 0); link.href = tempCanvas.toDataURL('image/png'); link.click(); });
+        document.getElementById('increaseFontSize').addEventListener('click', () => { if (selectedObject && selectedObject.type === 'text') { selectedObject.fontSize /= 0.9; updateSelectionUI(); render(); saveState(); } });
+        document.getElementById('decreaseFontSize').addEventListener('click', () => { if (selectedObject && selectedObject.type === 'text') { selectedObject.fontSize *= 0.9; updateSelectionUI(); render(); saveState(); } });
+
+        function showConfirmationModal(message, onConfirm, isAlert = false) { const modal = document.getElementById('confirmationModal'); modal.classList.remove('hidden'); document.getElementById('modalMessage').textContent = message; const confirmBtn = document.getElementById('modalConfirmBtn'); const cancelBtn = document.getElementById('modalCancelBtn'); if(isAlert){ confirmBtn.classList.add('hidden'); cancelBtn.textContent = "Cerrar"; } else { confirmBtn.classList.remove('hidden'); cancelBtn.textContent = "Cancelar"; } const confirmHandler = () => { onConfirm(); cleanup(); }; const cancelHandler = () => cleanup(); function cleanup() { modal.classList.add('hidden'); confirmBtn.removeEventListener('click', confirmHandler); cancelBtn.removeEventListener('click', cancelHandler); } confirmBtn.addEventListener('click', confirmHandler); cancelBtn.addEventListener('click', cancelHandler); }
+        document.getElementById('add3Frontales').addEventListener('click', () => addStructure(templates['3Frontales'])); document.getElementById('addBronceConstructor').addEventListener('click', () => addStructure(templates['bronceConstructor'])); document.getElementById('addLiderPlata').addEventListener('click', () => addStructure(templates['liderPlata'])); document.getElementById('addPlatino').addEventListener('click', () => addStructure(templates['platino'])); document.getElementById('addEsmeralda').addEventListener('click', () => addStructure(templates['esmeralda'])); document.getElementById('addDiamante').addEventListener('click', () => addStructure(templates['diamante']));
+        
+        window.addEventListener('resize', setCanvasSize);
+        canvas.addEventListener('wheel', handleZoom, { passive: false });
+        ['mousedown', 'touchstart'].forEach(evt => canvas.addEventListener(evt, startAction, { passive: false }));
+        ['mousemove', 'touchmove'].forEach(evt => canvas.addEventListener(evt, moveAction, { passive: false }));
+        ['mouseup', 'touchend', 'touchcancel'].forEach(evt => document.addEventListener(evt, endAction));
+        canvas.addEventListener('dblclick', handleDoubleClick);
+        
+        initializeCanvas();
+        lucide.createIcons();
+    });
+    </script>
+</body>
+</html>
+
